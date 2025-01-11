@@ -1,0 +1,18 @@
+;; Load environment
+(load "../../bootstrap.repl")
+
+;; Load module
+(begin-tx)
+(namespace base.NAMESPACE)
+(env-data { "ns": base.NAMESPACE })
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(load "../../../modules/simple-staking.pact")
+(typecheck (+ base.NAMESPACE ".simple-staking"))
+
+;; Create the staking pool account
+(use constants)
+(coin.create-account STAKING_ACCOUNT (create-capability-guard (simple-staking.INTERNAL)))
+
+(env-data {})
+(env-sigs [])
+(commit-tx)

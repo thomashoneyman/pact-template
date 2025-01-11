@@ -1,0 +1,142 @@
+(load "setup.repl")
+
+;; The simple-staking contract has some protected functions: two that can
+;; only be called by the admin (init-pool, set-paused), one that can only be
+;; called by the ops user (set-min-stake), and staking operations that must
+;; be signed by the user.
+
+;; ----------------------
+;; ADMIN Access
+;; ----------------------
+
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+;; Verify init-pool fails without proper auth
+(expect-failure
+  "init-pool fails without admin sig"
+  "Keyset failure"
+  (init-pool 100.0))
+
+(env-sigs [{"key": "wrong-key", "caps": []}])
+(expect-failure
+  "init-pool fails with wrong key"
+  "Keyset failure"
+  (init-pool 100.0))
+
+;; Verify init-pool succeeds with admin key
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect
+  "init-pool succeeds with admin sig"
+  "Write succeeded"
+  (init-pool 50.0))  ;; Set minimum stake to 50.0
+
+;; Verify set-paused requires admin
+(env-sigs [])
+(expect-failure
+  "set-paused fails without admin sig"
+  "Keyset failure"
+  (set-paused true))
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect
+  "set-paused succeeds with admin sig"
+  "Write succeeded"
+  (set-paused false))  ;; Make sure pool is active for next tests
+
+(commit-tx)
+
+;; ----------------------
+;; OPS Access
+;; ----------------------
+
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+;; Verify set-min-stake fails without proper auth
+(env-sigs [])
+(expect-failure
+  "set-min-stake fails without ops sig"
+  "Keyset failure"
+  (set-min-stake 200.0))
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect-failure
+  "set-min-stake fails with admin key"
+  "Keyset failure"
+  (set-min-stake 200.0))
+
+;; Verify set-min-stake succeeds with ops key
+(env-sigs [{"key": base.OPS_KEY, "caps": []}])
+(expect
+  "set-min-stake succeeds with ops key"
+  "Write succeeded"
+  (set-min-stake 50.0))  ;; Keep minimum stake at 50.0
+
+(commit-tx)
+
+;; ----------------------
+;; User Access (Stake/Unstake)
+;; ----------------------
+
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+;; Verify stake fails without user sig
+(env-sigs [])
+(expect-failure
+  "stake fails without user sig"
+  "Keyset failure"
+  (stake base.ALICE 100.0))
+
+;; Verify stake fails with wrong user sig
+(env-sigs [{"key": base.BOB_KEY, "caps": [(STAKE base.ALICE 100.0)]}])
+(expect-failure
+  "stake fails with wrong user sig"
+  "Keyset failure"
+  (stake base.ALICE 100.0))
+
+;; Verify stake fails with correct user sig but no transfer cap
+(env-sigs [{"key": base.ALICE_KEY, "caps": [(STAKE base.ALICE 100.0)]}])
+(expect-failure
+  "stake fails with correct user sig but missing transfer cap"
+  "Managed capability not installed"
+  (stake base.ALICE 100.0))
+
+;; Verify stake succeeds with correct user sig and transfer cap
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(STAKE base.ALICE 100.0),
+                   (coin.TRANSFER base.ALICE STAKING_ACCOUNT 100.0)]}])
+(expect
+  "stake succeeds with correct user sig"
+  "Write succeeded"
+  (stake base.ALICE 100.0))
+
+;; Verify unstake fails without user sig
+(env-sigs [])
+(expect-failure
+  "unstake fails without user sig"
+  "Keyset failure"
+  (unstake base.ALICE 50.0))
+
+;; Verify unstake fails with wrong user sig
+(env-sigs [{"key": base.BOB_KEY, "caps": [(UNSTAKE base.ALICE 50.0)]}])
+(expect-failure
+  "unstake fails with wrong user sig"
+  "Keyset failure"
+  (unstake base.ALICE 50.0))
+
+;; Verify unstake succeeds with correct user sig and transfer cap
+(env-sigs [{"key": base.ALICE_KEY, "caps": [(UNSTAKE base.ALICE 50.0)]}])
+(expect
+  "unstake succeeds with correct user sig"
+  "Write succeeded"
+  (unstake base.ALICE 50.0))
+
+(commit-tx)

@@ -1,0 +1,28 @@
+name: contract-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pact
+        run: |
+          PACT_VERSION=$(cat .pact-version)
+          wget -nv https://github.com/kadena-io/pact/releases/download/v$PACT_VERSION/pact-$PACT_VERSION-linux-20.04.zip
+          mkdir -p .bin
+          unzip pact-$PACT_VERSION-linux-20.04.zip pact -d .bin
+          chmod +x .bin/pact
+
+      - name: Add Pact to PATH
+        run: echo "PATH=$PATH:$GITHUB_WORKSPACE/.bin" >> $GITHUB_ENV
+
+      - name: Run tests
+        working-directory: contracts/tests
+        run: ./run.sh --quiet --type unit,auth,integration

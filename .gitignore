@@ -1,0 +1,7 @@
+# System
+*.swp
+
+# Pact
+.pc-history
+.pact-history
+

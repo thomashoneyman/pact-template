@@ -1,0 +1,154 @@
+;; This unit test file demonstrates some principles about testing Pact modules,
+;; namely:
+;;   - All functions in the module are exercised
+;;   - We don't test auth in this file (that's in auth.repl), and we avoid granting
+;;     any auth beyond the scope of a single test.
+;;   - We test failure and success. When testing failure, we specify what the error
+;;     message should be to make sure we see the specific failure we expect.
+(load "setup.repl")
+
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+;; --------------------
+;; init-pool
+;; --------------------
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect-failure "init-pool fails with 0 minimum"
+  "Minimum stake must be positive"
+  (init-pool 0.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect-failure "init-pool fails with negative minimum"
+  "Minimum stake must be positive"
+  (init-pool -1.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect "init-pool succeeds with valid minimum"
+  "Write succeeded"
+  (init-pool 50.0))
+(env-sigs [])
+
+;; --------------------
+;; set-paused
+;; --------------------
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect "set-paused can enable pause"
+  "Write succeeded"
+  (set-paused true))
+(env-sigs [])
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect "set-paused can disable pause"
+  "Write succeeded"
+  (set-paused false))
+(env-sigs [])
+
+;; --------------------
+;; set-min-stake
+;; --------------------
+
+(env-sigs [{"key": base.OPS_KEY, "caps": []}])
+(expect-failure "set-min-stake fails with 0"
+  "Minimum stake must be positive"
+  (set-min-stake 0.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.OPS_KEY, "caps": []}])
+(expect-failure "set-min-stake fails with negative"
+  "Minimum stake must be positive"
+  (set-min-stake -1.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.OPS_KEY, "caps": []}])
+(expect "set-min-stake succeeds with valid amount"
+  "Write succeeded"
+  (set-min-stake 75.0))
+(env-sigs [])
+
+;; --------------------
+;; stake
+;; --------------------
+
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(STAKE base.ALICE 40.0), (coin.TRANSFER base.ALICE STAKING_ACCOUNT 40.0)]}])
+(expect-failure "stake fails below minimum"
+  "Stake amount below minimum"
+  (stake base.ALICE 40.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(STAKE base.ALICE 100.0), (coin.TRANSFER base.ALICE STAKING_ACCOUNT 100.0)]}])
+(expect "stake succeeds with valid amount"
+  "Write succeeded"
+  (stake base.ALICE 100.0))
+(env-sigs [])
+
+;; --------------------
+;; unstake
+;; --------------------
+
+(env-sigs [{"key": base.ALICE_KEY, "caps": [(UNSTAKE base.ALICE 150.0)]}])
+(expect-failure "unstake fails above balance"
+  "Insufficient staked balance"
+  (unstake base.ALICE 150.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.ALICE_KEY, "caps": [(UNSTAKE base.ALICE 50.0)]}])
+(expect "unstake succeeds with valid amount"
+  "Write succeeded"
+  (unstake base.ALICE 50.0))
+(env-sigs [])
+
+;; --------------------
+;; enforce-pool-active
+;; --------------------
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": [(ADMIN)]}])
+(set-paused true)
+(env-sigs [])
+
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(STAKE base.ALICE 100.0), (coin.TRANSFER base.ALICE STAKING_ACCOUNT 100.0)]}])
+(expect-failure "enforce-pool-active prevents stake when paused"
+  "Pool is paused"
+  (stake base.ALICE 100.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": [(ADMIN)]}])
+(set-paused false)
+(env-sigs [])
+
+;; --------------------
+;; get-pool-info
+;; --------------------
+
+(expect "get-pool-info returns correct structure"
+  {"total-staked": 50.0,
+   "min-stake": 75.0,
+   "paused": false}
+  (get-pool-info))
+
+;; --------------------
+;; get-staker-info
+;; --------------------
+
+(expect-failure "get-staker-info fails for non-existent account"
+  "row not found"
+  (get-staker-info "non-existent"))
+
+(expect "get-staker-info returns correct balance"
+  50.0
+  (at "balance" (get-staker-info base.ALICE)))
+
+(expect "get-staker-info returns correct guard"
+  (at "guard" (coin.details base.ALICE))
+  (at "guard" (get-staker-info base.ALICE)))
+
+(commit-tx)

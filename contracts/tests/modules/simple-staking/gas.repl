@@ -1,0 +1,50 @@
+(load "setup.repl")
+
+; Gas setup
+(env-gasmodel "table")
+(env-gaslimit 100000000)
+
+; Module setup
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+(print "GAS MEASUREMENTS")
+(print "  (measurements include ~4 gas per arg for printing)")
+(print "==========")
+
+;; Admin functions
+(env-gas 0)
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(init-pool 50.0)
+(print (format "init-pool:           {}" [(env-gas)]))
+(env-sigs [])
+
+(env-gas 0)
+(env-sigs [{"key": base.ADMIN_KEY, "caps": [(ADMIN)]}])
+(set-paused false)
+(print (format "set-paused:          {}" [(env-gas)]))
+(env-sigs [])
+
+;; Ops functions
+(env-gas 0)
+(env-sigs [{"key": base.OPS_KEY, "caps": []}])
+(set-min-stake 75.0)
+(print (format "set-min-stake:       {}" [(env-gas)]))
+(env-sigs [])
+
+;; User functions
+(env-gas 0)
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(STAKE base.ALICE 100.0),
+                   (coin.TRANSFER base.ALICE STAKING_ACCOUNT 100.0)]}])
+(stake base.ALICE 100.0)
+(print (format "stake:               {}" [(env-gas)]))
+(env-sigs [])
+
+(env-gas 0)
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(UNSTAKE base.ALICE 50.0)]}])
+(unstake base.ALICE 50.0)
+(print (format "unstake:             {}" [(env-gas)]))
+(env-sigs [])

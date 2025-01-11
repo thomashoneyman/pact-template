@@ -1,0 +1,159 @@
+;; All non-trivial modules should have a toplevel file that serves as
+;; full test exercising how the module should be used. It's both a
+;; demonstration to reviewers and users about how to use the module and
+;; it ensures the behavior of the module as a whole, on top of the unit
+;; tests that verify individual functions. If your module is particularly
+;; complex, add multiple sub-files in the child directory for the module
+;; with the various integration tests and exercise them all here.
+(load "simple-staking/setup.repl")
+
+;; -------------------------
+;; Integration Test Workflow
+;; -------------------------
+
+(print "Executing simple-staking integration test...")
+
+;; 1. Admin initializes the pool
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": []}])
+(expect "Pool initialization succeeds"
+  "Write succeeded"
+  (init-pool 100.0))
+(env-sigs [])
+
+(expect "Pool starts with correct parameters"
+  {"total-staked": 0.0,
+   "min-stake": 100.0,
+   "paused": false}
+  (get-pool-info))
+(commit-tx)
+
+;; 2. Multiple users stake funds
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+;; Alice stakes
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(STAKE base.ALICE 200.0),
+                   (coin.TRANSFER base.ALICE STAKING_ACCOUNT 200.0)]}])
+(expect "Alice can stake 200 KDA"
+  "Write succeeded"
+  (stake base.ALICE 200.0))
+(env-sigs [])
+
+;; Bob stakes
+(env-sigs [{"key": base.BOB_KEY,
+           "caps": [(STAKE base.BOB 300.0),
+                   (coin.TRANSFER base.BOB STAKING_ACCOUNT 300.0)]}])
+(expect "Bob can stake 300 KDA"
+  "Write succeeded"
+  (stake base.BOB 300.0))
+(env-sigs [])
+
+(expect "Pool total reflects both stakes"
+  500.0
+  (at "total-staked" (get-pool-info)))
+
+(expect "Alice's stake is recorded correctly"
+  200.0
+  (at "balance" (get-staker-info base.ALICE)))
+
+(expect "Bob's stake is recorded correctly"
+  300.0
+  (at "balance" (get-staker-info base.BOB)))
+(commit-tx)
+
+;; 3. Admin pauses pool for maintenance
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": [(ADMIN)]}])
+(expect "Admin can pause pool"
+  "Write succeeded"
+  (set-paused true))
+(env-sigs [])
+
+;; Verify no staking/unstaking during pause
+(env-sigs [{"key": base.CHARLIE_KEY,
+           "caps": [(STAKE base.CHARLIE 150.0),
+                   (coin.TRANSFER base.CHARLIE STAKING_ACCOUNT 150.0)]}])
+(expect-failure "Cannot stake while paused"
+  "Pool is paused"
+  (stake base.CHARLIE 150.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(UNSTAKE base.ALICE 100.0)]}])
+(expect-failure "Cannot unstake while paused"
+  "Pool is paused"
+  (unstake base.ALICE 100.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.ADMIN_KEY, "caps": [(ADMIN)]}])
+(expect "Admin can unpause pool"
+  "Write succeeded"
+  (set-paused false))
+(env-sigs [])
+(commit-tx)
+
+;; 4. Users partially unstake
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+(env-sigs [{"key": base.ALICE_KEY,
+           "caps": [(UNSTAKE base.ALICE 100.0)]}])
+(expect "Alice can partially unstake"
+  "Write succeeded"
+  (unstake base.ALICE 100.0))
+(env-sigs [])
+
+(expect "Alice's remaining stake is correct"
+  100.0
+  (at "balance" (get-staker-info base.ALICE)))
+
+(expect "Pool total is updated after unstake"
+  400.0
+  (at "total-staked" (get-pool-info)))
+(commit-tx)
+
+;; 5. Ops adjusts minimum stake
+(begin-tx)
+(namespace base.NAMESPACE)
+(use simple-staking)
+(use constants)
+
+(env-sigs [{"key": base.OPS_KEY, "caps": []}])
+(expect "Ops can update minimum stake"
+  "Write succeeded"
+  (set-min-stake 150.0))
+(env-sigs [])
+
+;; Try to stake below new minimum
+(env-sigs [{"key": base.CHARLIE_KEY,
+           "caps": [(STAKE base.CHARLIE 125.0),
+                   (coin.TRANSFER base.CHARLIE STAKING_ACCOUNT 125.0)]}])
+(expect-failure "Cannot stake below new minimum"
+  "Stake amount below minimum"
+  (stake base.CHARLIE 125.0))
+(env-sigs [])
+
+(env-sigs [{"key": base.CHARLIE_KEY,
+           "caps": [(STAKE base.CHARLIE 150.0),
+                   (coin.TRANSFER base.CHARLIE STAKING_ACCOUNT 150.0)]}])
+(expect "Can stake at new minimum"
+  "Write succeeded"
+  (stake base.CHARLIE 150.0))
+(env-sigs [])
+(commit-tx)
+
+(print "Integration test completed successfully")

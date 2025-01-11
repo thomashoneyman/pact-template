@@ -1,0 +1,129 @@
+;; A bootstrap file to create a REPL environment in tests that mimics the
+;; Chainweb environment. This includes loading contracts and creating
+;; namespaces that exist in Chainweb, as well as initializing some users
+;; that have KDA funds for the sake of testing. We also set up a principal
+;; namespace for our contracts and anything else we need to make our test
+;; REPL files focused just on our contracts, not setup.
+
+;; We allow repl natives for the sake of making test modules that can
+;; set up sigs, use test-capability, etc.
+(env-enable-repl-natives true)
+
+;; We load and initialize basic Kadena contracts we expect to already exist.
+(begin-tx)
+(load "bootstrap/fungible-v2.pact")
+(load "bootstrap/fungible-xchain-v1.pact")
+(load "bootstrap/coin.pact")
+(load "bootstrap/ns.pact")
+(create-table registry)
+(commit-tx)
+
+(begin-tx)
+;; Create the principal namespace using the same ns.pact namespace
+;; setup file that the actual protocol uses. Our example test file
+;; uses an 'ops' keyset to control access, so we'll include that
+;; keyset here too, though you can delete it when you set up your
+;; own project.
+(env-data {
+  "admin-keyset": {"keys": ["admin-public-key"], "pred": "keys-all"},
+  "ops-keyset": {"keys": ["ops-public-key"], "pred": "keys-all"}
+})
+(env-sigs [{"key": "admin-public-key", "caps": []}])
+(load "../modules/ns.pact")
+(commit-tx)
+
+;; The 'base' module provides constants so we can easily refer to specific
+;; accounts, keys, keysets, the principal namespace, etc.
+(begin-tx)
+(env-data {
+  "admin-keyset": {"keys": ["admin-public-key"], "pred": "keys-all"},
+  "alice-keyset": {"keys": ["alice-public-key"], "pred": "keys-all"},
+  "bob-keyset": {"keys": ["bob-public-key"], "pred": "keys-all"},
+  "charlie-keyset": {"keys": ["charlie-public-key"], "pred": "keys-all"}
+})
+(module base GOV
+  (defcap GOV () true)
+
+  ;; Basic guards
+  (defconst GUARD_SUCCESS (create-user-guard (success)))
+  (defconst GUARD_FAILURE (create-user-guard (failure)))
+
+  (defun success () true)
+  (defun failure () (enforce false "Disabled"))
+
+  ;; Admin account
+  (defconst ADMIN "admin")
+  (defconst ADMIN_KEY "admin-public-key")
+
+  (defconst OPS "ops")
+  (defconst OPS_KEY "ops-public-key")
+
+  ;; Principal namespace our contracts will use. This is generated in practice;
+  ;; we're just duplicating the ns.pact module here for easy reference.
+  (defconst NAMESPACE (ns.create-principal-namespace (read-keyset "admin-keyset")))
+
+  ;; Test accounts
+  (defconst ALICE "alice")
+  (defconst BOB "bob")
+  (defconst CHARLIE "charlie")
+
+  ;; Account public keys
+  (defconst ALICE_KEY "alice-public-key")
+  (defconst BOB_KEY "bob-public-key")
+  (defconst CHARLIE_KEY "charlie-public-key")
+
+  ;; Account keyset names, fully qualified, as they will be defined on-chain
+  (defconst ALICE_KEYSET "free.alice-keyset")
+  (defconst BOB_KEYSET "free.bob-keyset")
+  (defconst CHARLIE_KEYSET "free.charlie-keyset")
+
+  ;; Account guards
+  (defconst ALICE_GUARD (read-keyset "alice-keyset"))
+  (defconst BOB_GUARD (read-keyset "bob-keyset"))
+  (defconst CHARLIE_GUARD (read-keyset "charlie-keyset"))
+)
+(commit-tx)
+
+;; Define expected on-chain namespaces
+(begin-tx)
+(use base)
+(define-namespace 'util GUARD_SUCCESS GUARD_SUCCESS)
+(define-namespace 'free GUARD_SUCCESS GUARD_SUCCESS)
+(define-namespace 'kip GUARD_SUCCESS GUARD_SUCCESS)
+(define-namespace 'user GUARD_SUCCESS GUARD_SUCCESS)
+(define-namespace 'marmalade GUARD_SUCCESS GUARD_SUCCESS)
+(commit-tx)
+
+;; Create and register keysets
+(begin-tx)
+(use base)
+(env-data {
+  "alice-keyset": {"keys": [ALICE_KEY], "pred": "keys-all"},
+  "bob-keyset": {"keys": [BOB_KEY], "pred": "keys-all"},
+  "charlie-keyset": {"keys": [CHARLIE_KEY], "pred": "keys-all"}
+})
+
+;; Register user keysets in the 'free' namespace
+(namespace "free")
+(define-keyset ALICE_KEYSET ALICE_GUARD)
+(define-keyset BOB_KEYSET BOB_GUARD)
+(define-keyset CHARLIE_KEYSET CHARLIE_GUARD)
+
+;; Fund the accounts
+(coin.create-account ALICE ALICE_GUARD)
+(coin.create-account BOB BOB_GUARD)
+(coin.create-account CHARLIE CHARLIE_GUARD)
+
+(test-capability (coin.COINBASE))
+(coin.coinbase ALICE ALICE_GUARD 1000.0)
+(coin.coinbase BOB BOB_GUARD 1000.0)
+(coin.coinbase CHARLIE CHARLIE_GUARD 1000.0)
+(commit-tx)
+
+(begin-tx)
+(env-data { "ns": base.NAMESPACE })
+(namespace base.NAMESPACE)
+(load "../modules/constants.pact")
+(env-data {})
+(env-sigs [])
+(commit-tx)
