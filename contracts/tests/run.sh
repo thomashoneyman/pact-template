@@ -1,29 +1,30 @@
 #!/bin/bash
 
-# Function to print usage
 usage() {
-    echo "Usage: $0 [--module MODULE1,MODULE2,...] [--type TYPE1,TYPE2,...] [--exclude-type TYPE1,TYPE2,...] [--quiet]"
+    echo "Usage: $0 [--module MODULE1,MODULE2,...] [--type TYPE1,TYPE2,...] [--exclude-type TYPE1,TYPE2,...] [--verbose|--debug|--quiet]"
     echo
     echo "Options:"
-    echo "  --module       pecify comma-separated module names to test (without .pact extension)"
+    echo "  --module        Specify comma-separated module names to test (without .pact extension)"
     echo "  --type         Specify which test types to run (auth,unit,main,gas)"
     echo "  --exclude-type Specify which test types to skip (auth,unit,main,gas)"
     echo "  --quiet        Suppress output unless there is a test failure"
+    echo "  --verbose      Show all test output including Pact printed output"
+    echo "  --debug        Like verbose but also enables Pact trace mode"
     echo
     echo "Examples:"
     echo "  ./run.sh"
-    echo "  ./run.sh --module simple-staking"
-    echo "  ./run.sh --type unit,main"
-    echo "  ./run.sh --exclude-type gas"
-    echo "  ./run.sh --quiet"
+    echo "  ./run.sh --module simple-staking --verbose"
+    echo "  ./run.sh --type unit,main --debug"
+    echo "  ./run.sh --exclude-type gas --quiet"
     exit 1
 }
 
-# Parse command line arguments
-QUIET=false
+# Parse command-line arguments
+VERBOSITY="normal"
 MODULES=""
 TYPES=""
 EXCLUDE_TYPES=""
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --module)
@@ -39,7 +40,15 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --quiet)
-            QUIET=true
+            VERBOSITY="quiet"
+            shift
+            ;;
+        --verbose)
+            VERBOSITY="verbose"
+            shift
+            ;;
+        --debug)
+            VERBOSITY="debug"
             shift
             ;;
         -h|--help)
@@ -52,27 +61,25 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Directories
+# Directory configuration
 BASE_DIR=".."
 MODULE_DIR="$BASE_DIR/modules"
 TEST_DIR="."
 MODULE_TEST_DIR="$TEST_DIR/modules"
 EXCEPTIONS_FILE="$TEST_DIR/test-exceptions.txt"
 
-# Arrays to store test results
+# Arrays to collect test results and gas tests
 declare -a FAILED_TESTS=()
 declare -a GAS_TESTS=()
 
-# Function to check if a test type should be run
+# Check if a specific test type should be run based on --type and --exclude-type
 should_run_test_type() {
     local test_type="$1"
 
-    # If specific types are specified, check if this type is included
     if [ -n "$TYPES" ]; then
         echo "$TYPES" | tr ',' '\n' | grep -q "^$test_type$" || return 1
     fi
 
-    # If excluded types are specified, check if this type is excluded
     if [ -n "$EXCLUDE_TYPES" ]; then
         echo "$EXCLUDE_TYPES" | tr ',' '\n' | grep -q "^$test_type$" && return 1
     fi
@@ -80,12 +87,12 @@ should_run_test_type() {
     return 0
 }
 
-# Function to check if a module is excepted from testing
+# Check if a module is in the exceptions list
 is_excepted_module() {
     local file_name="$1"
     if [ -f "$EXCEPTIONS_FILE" ]; then
         if grep -v '^#' "$EXCEPTIONS_FILE" | grep -q "^${file_name}$"; then
-            if [ "$QUIET" = false ]; then
+            if [ "$VERBOSITY" != "quiet" ]; then
                 echo "Skipping excepted module: $file_name"
             fi
             return 0
@@ -94,66 +101,79 @@ is_excepted_module() {
     return 1
 }
 
-# Function to verify main tests exist and aren't empty
+# Verify that a module has valid main tests (either main.repl or main/)
 verify_main_tests() {
     local module_test_dir="$1"
     local has_valid_tests=false
 
-    # Check main.repl
+    # Check for non-empty main.repl file
     if [ -f "$module_test_dir/main.repl" ]; then
         if [ -s "$module_test_dir/main.repl" ]; then
             has_valid_tests=true
         fi
     fi
 
-    # Check main directory
+    # Check for main/ directory with .repl files
     if [ -d "$module_test_dir/main" ]; then
         if [ "$(find "$module_test_dir/main" -name "*.repl" -type f)" ]; then
             if [ "$has_valid_tests" = true ]; then
-                return 2  # Both main.repl and main/ exist
+                return 2  # Error: both main.repl and main/ exist
             fi
             has_valid_tests=true
         fi
     fi
 
     if [ "$has_valid_tests" = true ]; then
-        return 0
+        return 0  # Success: exactly one valid main test source exists
     fi
-    return 1
+    return 1  # Error: no valid main tests found
 }
 
-# Function to run a test file and collect results
+# Run a single test file and handle output based on verbosity
 run_test() {
     local test_file="$1"
     local module_name="$2"
     local test_type="$3"
 
-    if [ "$QUIET" = false ]; then
+    if [ "$VERBOSITY" != "quiet" ]; then
         echo "Running $test_type test: $test_file"
     fi
 
-    # Capture both stdout and stderr
-    output=$(pact "$test_file" 2>&1)
-    if [ $? -ne 0 ]; then
-        FAILED_TESTS+=("$module_name - $test_type - $test_file")
-        if [ "$QUIET" = false ]; then
+    local pact_args=""
+    if [ "$VERBOSITY" = "debug" ]; then
+        pact_args="--trace"
+    fi
+
+    # For quiet/normal mode, capture output to show only on failure
+    if [ "$VERBOSITY" = "quiet" ] || [ "$VERBOSITY" = "normal" ]; then
+        output=$(pact $pact_args "$test_file" 2>&1)
+        exit_code=$?
+        if [ $exit_code -ne 0 ]; then
+            FAILED_TESTS+=("$module_name - $test_type - $test_file")
             echo "Test failed: $test_file"
             echo "Output:"
             echo "$output"
         fi
+    else
+        # For verbose/debug mode, stream output in real-time
+        if pact $pact_args "$test_file"; then
+            return 0
+        else
+            FAILED_TESTS+=("$module_name - $test_type - $test_file")
+            return 1
+        fi
     fi
 }
 
-# Function to run tests of a specific type for a module
+# Run all tests of a specific type for a module
 run_test_type() {
     local module_name="$1"
     local test_type="$2"
     local module_test_dir="$MODULE_TEST_DIR/$module_name"
 
-    # Skip if this test type shouldn't be run
     should_run_test_type "$test_type" || return 0
 
-    # Handle gas tests separately - we'll run those later
+    # Handle gas tests specially - collect them to run last
     if [ "$test_type" = "gas" ]; then
         if [ -f "$module_test_dir/gas.repl" ]; then
             GAS_TESTS+=("$module_test_dir/gas.repl")
@@ -166,12 +186,12 @@ run_test_type() {
         return
     fi
 
-    # Run single file if it exists
+    # Run single file test if it exists
     if [ -f "$module_test_dir/$test_type.repl" ]; then
         run_test "$module_test_dir/$test_type.repl" "$module_name" "$test_type"
     fi
 
-    # Run directory contents if they exist
+    # Run all tests in directory if it exists
     if [ -d "$module_test_dir/$test_type" ]; then
         while IFS= read -r file; do
             run_test "$file" "$module_name" "$test_type"
@@ -179,17 +199,16 @@ run_test_type() {
     fi
 }
 
-# Function to verify module has required tests
+# Verify a module has all required tests
 verify_module_tests() {
     local module="$1"
     local module_test_dir="$MODULE_TEST_DIR/$module"
 
-    # Check for main test (required)
     verify_main_tests "$module_test_dir"
     local main_result=$?
 
     case $main_result in
-        0)  return 0 ;;  # Valid main tests exist
+        0)  return 0 ;;
         1)  FAILED_TESTS+=("$module - Missing or empty main tests")
             return 1 ;;
         2)  FAILED_TESTS+=("$module - Both main.repl and main/ exist")
@@ -197,7 +216,7 @@ verify_module_tests() {
     esac
 }
 
-# Get list of modules to test
+# Build list of modules to test
 if [ -n "$MODULES" ]; then
     IFS=',' read -ra TEMP_MODULE_LIST <<< "$MODULES"
     for module in "${TEMP_MODULE_LIST[@]}"; do
@@ -206,7 +225,6 @@ if [ -n "$MODULES" ]; then
         fi
     done
 else
-    # Get all modules except those in exceptions file
     while IFS= read -r file; do
         file_name=$(basename "$file")
         if ! is_excepted_module "$file_name"; then
@@ -216,7 +234,7 @@ else
     done < <(find "$MODULE_DIR" -name "*.pact")
 fi
 
-# Verify all modules have test directories
+# Run tests for each module
 for module in "${MODULE_LIST[@]}"; do
     if [ ! -d "$MODULE_TEST_DIR/$module" ]; then
         FAILED_TESTS+=("$module - Missing test directory")
@@ -225,15 +243,14 @@ for module in "${MODULE_LIST[@]}"; do
 
     verify_module_tests "$module" || continue
 
-    # Run tests in order: auth, unit, main
     for test_type in auth unit main gas; do
         run_test_type "$module" "$test_type"
     done
 done
 
-# Run gas tests last
+# Run collected gas tests last
 if should_run_test_type "gas" && [ ${#GAS_TESTS[@]} -gt 0 ]; then
-    if [ "$QUIET" = false ]; then
+    if [ "$VERBOSITY" != "quiet" ]; then
         echo -e "\nRunning gas tests..."
     fi
     for test in "${GAS_TESTS[@]}"; do
@@ -244,7 +261,7 @@ fi
 
 # Report results
 if [ ${#FAILED_TESTS[@]} -eq 0 ]; then
-    if [ "$QUIET" = false ]; then
+    if [ "$VERBOSITY" != "quiet" ]; then
         echo "All tests passed successfully"
     fi
     exit 0
