@@ -8,63 +8,75 @@ A project template for writing smart contracts in the Pact language for use in t
 * Bootstrap REPL files which mimic the Chainweb environment for more realistic tests
 * Continuous integration via GitHub workflows
 
-## Installation
+## Installation & Use
 
-This repository includes a `.pact-version` file suitable for use with [pactup](https://github.com/kadena-community/pactup). The same Pact version is used in continuous integration. You only need Pact and a shell to use this repository.
+This repository is a template, so you should feel free to copy and modify it for your needs.
+
+The root includes a `.pact-version` file suitable for use with [pactup](https://github.com/kadena-community/pactup). The same Pact version is used in continuous integration. There are no dependencies for this project except `pact` and a shell.
+
+There is an included test runner that will execute module tests. This is particularly useful with `watchexec` to execute tests while you work on particular modules. There are more details about how this script works in the **Test Structure** section.
+
+```sh
+# the 'test runner'
+./contracts/tests/run.sh
+```
+
+## Project Structure
+
+This template recommends a specific structure for your Pact code:
+
+```tree
+contracts/
+├── interfaces/          # Interface definitions
+     └── your-iface.pact
+├── modules/             # Contract implementations
+     ├── constants.pact  # Constant definitions for your modules
+     ├── ns.pact         # Definition of your principal namespace
+     └── your-module.pact
+└── tests/
+    ├── bootstrap/       # Chainweb environment simulation
+         ├── coin.pact
+         └── ...
+    ├── bootstrap.repl   # Initialize test environment
+    └── modules/         # Tests grouped by module
+        └── your-module/ # Tests for specific module
+            ├── setup.repl    # Module initialization & dependencies
+            ├── gas.repl      # Gas consumption measurements
+            ├── auth.repl     # Access control tests
+            ├── unit/         # Individual function tests
+                 ├── transfer.repl
+                 └── stake.repl
+            └── main.repl     # Top-level integration/usage tests
+```
 
 ## Test Structure
 
-Each module in `contracts/modules` must have a corresponding test directory in `contracts/tests/modules`, unless explicitly excluded via the exceptions file. For example:
-
-```
-contracts/
-├── modules/
-│   ├── simple-staking.pact
-│   └── other-module.pact
-└── tests/
-    └── modules/
-        ├── simple-staking/
-        │   ├── main.repl      # Required integration tests
-        │   ├── auth.repl      # Optional auth tests
-        │   ├── unit.repl      # Optional unit tests
-        │   └── gas.repl       # Optional gas tests
-        └── other-module/
-            ├── main/          # Alternative to main.repl
-            │   ├── test1.repl
-            │   └── test2.repl
-            ├── auth/          # Alternative to auth.repl
-            │   └── caps.repl
-            ├── unit/          # Alternative to unit.repl
-            │   └── basic.repl
-            └── gas/           # Alternative to gas.repl
-                └── common.repl
-```
+Each module in `modules` must have a corresponding test directory in `tests/modules`, unless explicitly excluded via the exceptions file.
 
 ### Test Types
 
 The test runner recognizes four types of tests:
 
 1. **Main Tests (Required)**
-   - Either `main.repl` or a `main/` directory with .repl files, but not both
+   - Either `main.repl` or a `main/` directory with .repl files
    - Contains integration tests demonstrating complete module workflows
    - Must be present and non-empty
 
-2. **Auth Tests (Optional)**
-   - Either `auth.repl` or an `auth/` directory with .repl files
+2. **Auth Tests (Optional for modules without auth)**
+   - Either `auth.repl` or an `auth/` directory
    - Tests access control, capabilities, signatures, etc.
    - Recommended for any module that uses capabilities or keysets
 
-3. **Unit Tests (Optional)**
-   - Either `unit.repl` or a `unit/` directory with .repl files
+3. **Unit Tests (Optional for trivial modules)**
+   - Either `unit.repl` or a `unit/` directory
    - Tests individual function behavior
    - Recommended for all non-trivial modules
 
 4. **Gas Tests (Optional)**
-   - Either `gas.repl` or a `gas/` directory with .repl files
+   - Either `gas.repl` or a `gas/` directory
    - Measures gas consumption of operations
-   - Run last due to verbose output
 
-For each test type, you may use either a single .repl file or a directory of .repl files, but not both. Main tests are required; all others are optional but recommended where appropriate.
+For each test type, you may use either a single .repl file or a directory of .repl files. Main tests are required; all others are optional but recommended where appropriate.
 
 ### Running Tests
 
