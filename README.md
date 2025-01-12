@@ -12,22 +12,10 @@ A project template for writing smart contracts in the Pact language for use in t
 
 This repository includes a `.pact-version` file suitable for use with [pactup](https://github.com/kadena-community/pactup). The same Pact version is used in continuous integration. You only need Pact and a shell to use this repository.
 
-## Running tests
+You can execute tests with:
 
-The project includes a test runner script at [`contracts/tests/run.sh`](contracts/tests/run.sh) that can be used in several ways. Assuming you are in the tests directory:
-
-```bash
-# Run all tests (automatically excludes setup and bootstrap files)
-./run.sh
-
-# Run all tests for simple-staking module
-./run.sh --module simple-staking
-
-# Run only unit and gas tests for simple-staking
-./run.sh --module simple-staking --type unit,gas
-
-# Run all integration tests
-./run.sh --type integration
+```sh
+./contracts/tests/run.sh
 ```
 
 ## Structure
@@ -37,11 +25,11 @@ This template recommends a specific structure for your Pact code:
 ```
 contracts/
 ├── interfaces/           # Interface definitions
-     └── example.pact     # e.g., your-interface-v1
+     └── your-iface.pact
 ├── modules/              # Contract implementations
      ├── constants.pact   # Constant definitions for your modules
      ├── ns.pact          # Definition of your principal namespace
-     └── example.pact     # e.g., your-module-v1
+     └── your-module.pact
 └── tests/
     ├── bootstrap/        # Chainweb environment simulation
          ├── coin.pact
@@ -54,7 +42,7 @@ contracts/
         ├── unit/         # Individual function tests
              ├── transfer.repl
              └── stake.repl
-        └── your-module.repl  # Top-level integration/usage tests
+        └── main.repl  # Top-level integration/usage tests
 ```
 
 ## Testing Environment
@@ -90,93 +78,101 @@ To use this environment in your tests:
 
 The base module provides constants for accounts, keys, and guards - see `bootstrap.repl` for all available values.
 
-## Test Organization
+## Running Tests
 
-Each module should have a dedicated test directory with:
+This project uses a structured testing approach that requires a specific organization of test files. The test runner enforces these conventions to ensure all modules are comprehensively tested.
 
-1. **setup.repl** - If needed, handles:
-   - Loading module dependencies
-   - Initializing module state
-   - Creating test data/accounts
-   - Any other test prerequisites
+### Test Organization
 
-2. **gas.repl** - Measures gas consumption of key operations:
-   - Critical path operations
-   - Expensive computations
-   - Common user interactions
-   - Helps identify potential optimization needs
+Each module in `contracts/modules` must have a corresponding test directory in `contracts/tests/modules`, unless explicitly excluded via the exceptions file. For example:
 
-3. **auth.repl or auth/** - Ensures proper access control:
-   - Tests all capability guards
-   - Verifies admin-only functions
-   - Checks user permission boundaries
-   - Attempts unauthorized access
-   - Validates signature requirements
-   - One file for simple modules, multiple for complex ones.
-
-4. **top level or unit/** - Individual function tests:
-   - Validates expected behavior
-   - Tests edge cases
-   - Checks error conditions
-   - Can be the top-level file for simple modules, or a directory with one test file per function for complex modules.
-
-5. **top level** - Integration and usage examples:
-   - Shows intended function workflow
-   - Demonstrates typical user interactions
-   - Tests interrelated functions
-   - Provides usage documentation
-   - For simple modules this can be the unit tests, with no separate directory
-
-### Example Test Structure
-
-```repl
-;; auth.repl
-(load "../bootstrap.repl")
-
-(begin-tx)
-(use base)
-
-(expect-failure "Only admin can initialize"
-  "Keyset failure"
-  (your-module.initialize BOB_GUARD))
-
-(expect "Admin can initialize"
-  "Write succeeded"
-  (your-module.initialize ADMIN_GUARD))
-(commit-tx)
-
-;; unit/stake.repl
-(load "../bootstrap.repl")
-
-(begin-tx)
-(use base)
-
-(expect "Can stake minimum amount"
-  "Stake successful"
-  (your-module.stake ALICE MIN_STAKE))
-
-(expect-failure "Cannot stake below minimum"
-  "Stake amount too low"
-  (your-module.stake ALICE (- MIN_STAKE 0.1)))
-(commit-tx)
-
-;; your-module.repl
-(load "bootstrap.repl")
-
-(begin-tx)
-(use base)
-
-;; Show complete staking workflow
-(your-module.stake ALICE 1000.0)
-(expect "Stake recorded"
-  1000.0
-  (your-module.get-stake ALICE))
-
-;; After lockup period
-(chain-time (add-time (now) LOCKUP_PERIOD))
-(your-module.unstake ALICE)
-(expect "Stake released"
-  0.0
-  (your-module.get-stake ALICE))
-(commit-tx)
 ```
+contracts/
+├── modules/
+│   ├── simple-staking.pact
+│   └── other-module.pact
+└── tests/
+    └── modules/
+        ├── simple-staking/
+        │   ├── main.repl      # Required integration tests
+        │   ├── auth.repl      # Optional auth tests
+        │   ├── unit.repl      # Optional unit tests
+        │   └── gas.repl       # Optional gas tests
+        └── other-module/
+            ├── main/          # Alternative to main.repl
+            │   ├── test1.repl
+            │   └── test2.repl
+            ├── auth/          # Alternative to unit.repl
+            │   └── capabilities.repl
+            ├── unit/          # Alternative to unit.repl
+            │   └── basic.repl
+            └── gas/           # Alternative to gas.repl
+                └── common.repl
+```
+
+### Test Types
+
+The test runner recognizes four types of tests:
+
+1. **Main Tests (Required)**
+   - A `main.repl` and/or a `main/` directory with .repl files
+   - Contains integration tests demonstrating complete module workflows
+   - Must be present and non-empty
+
+2. **Auth Tests (Required unless module has no access control)**
+   - A `auth.repl` and/or an `auth/` directory with .repl files
+   - Tests access control, capabilities, signatures, etc.
+   - Test runner does not enforce presence, but should be used for any module that uses capabilities, keysets, etc.
+
+3. **Unit Tests (Required unless module is trivial)**
+   - A `unit.repl` and/or a `unit/` directory with .repl files
+   - Tests individual function behavior
+   - Test runner does not enforce presence, but should be used for all non-trivial modules. Simple modules can just use main.repl.
+
+4. **Gas Tests (Optional)**
+   - Either `gas.repl` or a `gas/` directory with .repl files
+   - Measures gas consumption of operations
+
+For each test type, you can use either a single .repl file or a directory of .repl files. The main tests are required; all others are optional.
+
+### Running Tests
+
+The test runner provides several options for running tests:
+
+```bash
+# Run all tests for all modules
+./run.sh
+
+# Run tests for specific modules
+./run.sh --module simple-staking,other-module
+
+# Run specific test types
+./run.sh --type unit,auth
+
+# Run all tests except gas tests
+./run.sh --exclude-type gas
+
+# Run quietly (only show failures)
+./run.sh --quiet
+```
+
+### Excluding Modules from Testing
+
+To exclude modules from testing requirements (e.g., utility modules), list their filenames in `contracts/tests/test-exceptions.txt`:
+
+```txt
+# List modules that don't require tests (one per line)
+ns.pact
+constants.pact
+```
+
+### Test Execution Order
+
+The test runner executes tests in this order:
+
+1. Auth tests (if present)
+2. Unit tests (if present)
+3. Main tests (required)
+4. Gas tests (if present, run last due to verbosity)
+
+The runner collects all failures and reports them at the end rather than stopping at the first failure.

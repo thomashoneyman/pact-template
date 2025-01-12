@@ -1,11 +1,11 @@
-;; All non-trivial modules should have a toplevel file that serves as
+;; All non-trivial modules should have a main.repl file that serves as
 ;; full test exercising how the module should be used. It's both a
 ;; demonstration to reviewers and users about how to use the module and
 ;; it ensures the behavior of the module as a whole, on top of the unit
 ;; tests that verify individual functions. If your module is particularly
 ;; complex, add multiple sub-files in the child directory for the module
 ;; with the various integration tests and exercise them all here.
-(load "simple-staking/setup.repl")
+(load "setup.repl")
 
 ;; -------------------------
 ;; Integration Test Workflow

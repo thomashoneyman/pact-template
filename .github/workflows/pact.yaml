@@ -25,4 +25,4 @@ jobs:
 
       - name: Run tests
         working-directory: contracts/tests
-        run: ./run.sh --quiet --type unit,auth,integration
+        run: ./run.sh --exclude-type gas --quiet
